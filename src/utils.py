@@ -159,19 +159,20 @@ def init_weights(model, init_type, init_gain):
 # Arguments checker #
 #####################
 def check_args(args):
-    # check optimizer
+    # check optimizer wrt torch optimizers
     if args.optimizer not in torch.optim.__dict__.keys():
         err = f'`{args.optimizer}` is not a submodule of `torch.optim`... please check!'
         logger.exception(err)
         raise AssertionError(err)
     
-    # check criterion
+    # check criterion wrt torch nn criterions
     if args.criterion not in torch.nn.__dict__.keys():
         err = f'`{args.criterion}` is not a submodule of `torch.nn`... please check!'
         logger.exception(err)
         raise AssertionError(err)
 
-    # check algorithm
+    # TODO: this is an algo specific check
+    # check algorithm, only for fedsgd
     if args.algorithm == 'fedsgd':
         args.E = 1
         args.B = 0
@@ -190,6 +191,8 @@ def check_args(args):
 
     # check compatibility of evaluation metrics
     if hasattr(args, 'num_classes'):
+        # Classification metrics check
+
         if args.num_classes > 2:
             if ('auprc' or 'youdenj') in args.eval_metrics:
                 err = f'some metrics (`auprc`, `youdenj`) are not compatible with multi-class setting... please check!'
@@ -206,6 +209,7 @@ def check_args(args):
             logger.exception(err)
             raise AssertionError(err)
     else:
+        # Regression metrics check
         if ('acc1' or 'acc5' or 'auroc' or 'auprc' or 'youdenj' or 'f1' or 'precision' or 'recall' or 'seqacc') in args.eval_metrics:
             err = f'selected dataset (`{args.dataset}`) is for a regression task... please check evaluation metrics!'
             logger.exception(err)
@@ -234,6 +238,7 @@ class NoPainBCEWithLogitsLoss(torch.nn.BCEWithLogitsLoss):
             torch.atleast_1d(targets).float()
         )
 
+# NOTE: overriding a torch class implementation
 torch.nn.BCEWithLogitsLoss = NoPainBCEWithLogitsLoss
 
 ################
@@ -249,6 +254,7 @@ class Seq2SeqLoss(torch.nn.CrossEntropyLoss):
         targets[torch.isin(targets, ignore_indices.to(targets.device))] = -1
         return torch.nn.functional.cross_entropy(inputs, targets, ignore_index=-1)
 
+# NOTE: overriding a torch class implementation
 torch.nn.Seq2SeqLoss = Seq2SeqLoss
 
 ##################
@@ -274,6 +280,7 @@ class MetricManager:
             module.collect(pred, true)
 
     def aggregate(self, total_len, curr_step=None):
+        # aggregate 
         running_figures = {name: module.summarize() for name, module in self.metric_funcs.items()}
         running_figures['loss'] = self.figures['loss'] / total_len
         if curr_step is not None:

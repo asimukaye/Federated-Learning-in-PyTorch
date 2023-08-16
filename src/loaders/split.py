@@ -6,7 +6,6 @@ from src import TqdmToLogger
 logger = logging.getLogger(__name__)
 
 
-
 def simulate_split(args, dataset):
     """Split data indices using labels.
     

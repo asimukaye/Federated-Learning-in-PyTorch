@@ -20,6 +20,9 @@ class FedavgClient(BaseClient):
         self.test_loader = self._create_dataloader(self.test_set, shuffle=False)
 
     def _refine_optim_args(self, args):
+        # adding additional args
+        #TODO: check what are the args being added
+        # NOTE: This function captures all he optim args from global args and captures those which match the optim class
         required_args = inspect.getfullargspec(self.optim)[0]
 
         # collect eneterd arguments
@@ -35,11 +38,15 @@ class FedavgClient(BaseClient):
         return torch.utils.data.DataLoader(dataset=dataset, batch_size=self.args.B, shuffle=shuffle)
 
     def update(self):
+        # Run an round on the client
         mm = MetricManager(self.args.eval_metrics)
         self.model.train()
         self.model.to(self.args.device)
         
+        # set optimizer parameters
         optimizer = self.optim(self.model.parameters(), **self._refine_optim_args(self.args))
+
+        # iterate over epochs and then on the batches
         for e in range(self.args.E):
             for inputs, targets in self.train_loader:
                 inputs, targets = inputs.to(self.args.device), targets.to(self.args.device)
@@ -52,13 +59,18 @@ class FedavgClient(BaseClient):
                 loss.backward()
                 optimizer.step()
 
+                # accumulate metrics
                 mm.track(loss.item(), outputs, targets)
             else:
+                # NOTE: This else is against a for loop. Seeing this for the first time here
                 mm.aggregate(len(self.training_set), e + 1)
+                
         return mm.results
 
     @torch.inference_mode()
     def evaluate(self):
+        # Run evaluation on the client
+
         if self.args._train_only: # `args.test_fraction` == 0
             return {'loss': -1, 'metrics': {'none': -1}}
 
@@ -78,9 +90,11 @@ class FedavgClient(BaseClient):
         return mm.results
 
     def download(self, model):
+        # Copy the model from the server
         self.model = copy.deepcopy(model)
 
     def upload(self):
+        # Upload the model back to the server
         self.model.to('cpu')
         return self.model.named_parameters()
     

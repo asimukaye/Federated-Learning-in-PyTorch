@@ -10,9 +10,10 @@ class FedproxClient(FedavgClient):
 
     def update(self):
         mm = MetricManager(self.args.eval_metrics)
-        self.model.train()
+        self.model.train()  
         self.model.to(self.args.device)
         
+        # NOTE: Different from FedAvg here. Uses a global model as reference.
         global_model = copy.deepcopy(self.model)
         for param in global_model.parameters(): 
             param.requires_grad = False

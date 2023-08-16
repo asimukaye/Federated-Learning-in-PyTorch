@@ -3,7 +3,6 @@ import torch
 from .basealgorithm import BaseOptimizer
 
 
-
 class FedavgOptimizer(BaseOptimizer, torch.optim.Optimizer):
     def __init__(self, params, **kwargs):
         self.lr = kwargs.get('lr')
@@ -15,7 +14,8 @@ class FedavgOptimizer(BaseOptimizer, torch.optim.Optimizer):
         loss = None
         if closure is not None:
             loss = closure()
-
+        
+        # param groups is list of params. Initialized in the torch optimizer class 
         for group in self.param_groups:
             beta = group['momentum']
             for param in group['params']:

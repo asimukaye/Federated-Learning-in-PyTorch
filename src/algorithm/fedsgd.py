@@ -18,6 +18,7 @@ class FedsgdOptimizer(FedavgOptimizer):
             for param in group['params']:
                 if param.grad is None:
                     continue
+                # next step is different from fedavg. grad is multiplied with lr
                 delta = param.grad.data.mul(group['lr'])
                 if beta > 0.:
                     if 'momentum_buffer' not in self.state[param]:

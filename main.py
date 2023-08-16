@@ -8,6 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 from src import Range, set_logger, TensorBoardRunner, check_args, set_seed, load_dataset, load_model 
 
+# TODO: Add options for new datasets
 
 
 def main(args, writer):
@@ -32,13 +33,17 @@ def main(args, writer):
     model, args = load_model(args)
 
     # check all args before FL
+
     args = check_args(args)
 
     # create central server
+    # rename the files later when replicating the repo
     server_class = import_module(f'src.server.{args.algorithm}server').__dict__[f'{args.algorithm.title()}Server']
+    
     server = server_class(args=args, writer=writer, server_dataset=server_dataset, client_datasets=client_datasets, model=model)
     
     # federated learning
+    # Note: This is where the rounds are being controlled
     for curr_round in range(1, args.R + 1):
         ## update round indicator
         server.round = curr_round
@@ -77,6 +82,8 @@ if __name__ == "__main__":
     # Dataset arguments #
     #####################
     ## dataset
+    # TODO: Learn more about this group of parameters
+
     parser.add_argument('--dataset', help='''name of dataset to use for an experiment 
     * NOTE: case sensitive*
     - image classification datasets in `torchvision.datasets`,
@@ -140,7 +147,7 @@ if __name__ == "__main__":
     ######################
     ## federated learning settings
     parser.add_argument('--algorithm', help='type of an federated learning algorithm to be used', type=str,
-        choices=['fedavg', 'fedsgd', 'fedprox'], 
+        choices=['fedavg', 'fedsgd', 'fedprox', 'cgsv'], 
         required=True
     )
     parser.add_argument('--eval_type', help='''the evaluation type of a model trained from FL algorithm
@@ -176,6 +183,11 @@ if __name__ == "__main__":
     parser.add_argument('--lr_decay_step', help='rate of learning rate decay applied per round', type=int, default=20)
     parser.add_argument('--criterion', help='type of criterion for objective function (should be a submodule of `torch.nn`)', type=str, default='CrossEntropyLoss')
     parser.add_argument('--mu', help='constant for proximity regularization term (for algorithms `fedprox`)', type=float, choices=[Range(0., 100)], default=0.01)
+
+    parser.add_argument('--alpha', help='relative importance of CGSV with other terms (for algorithm `cgsv`)', type=float, choices=[Range(0.8, 1.0)], default=0.95)
+    parser.add_argument('--altruism', help='altruism factor for gradient rewards(for algorithm `cgsv`)', type=float, choices=[Range(1.0, 2.0)], default=1.5)
+    # TODO: Check what is the value to be used here.
+    parser.add_argument('--gamma', help='normalization coefficient for gradient aggregation(for algorithm `cgsv`)', type=float, choices=[Range(0.1, 1.0)], default=0.5)
 
     # parse arguments
     args = parser.parse_args()

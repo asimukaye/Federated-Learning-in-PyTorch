@@ -8,6 +8,7 @@ class FedsgdClient(FedavgClient):
         super(FedsgdClient, self).__init__(**kwargs)
 
     def update(self):
+        # Different from FedAvg as this runs only one epoch 
         mm = MetricManager(self.args.eval_metrics)
         self.model.train()
         self.model.to(self.args.device)
