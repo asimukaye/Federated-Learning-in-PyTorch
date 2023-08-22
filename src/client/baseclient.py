@@ -1,5 +1,4 @@
-from abc import *
-
+from abc import ABCMeta, abstractmethod
 
 
 class BaseClient(metaclass=ABCMeta):

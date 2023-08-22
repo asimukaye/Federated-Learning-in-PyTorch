@@ -54,8 +54,13 @@ class FedavgClient(BaseClient):
                 outputs = self.model(inputs)
                 loss = self.criterion()(outputs, targets)
 
-                for param in self.model.parameters():
-                    param.grad = None
+                # NOTE: Is zeroing out the gradient necessary?
+                # https://pytorch.org/tutorials/recipes/recipes/zeroing_out_gradients.html#:~:text=It%20is%20beneficial%20to%20zero,backward()%20is%20called.
+
+                self.model.zero_grad(set_to_none=True)
+                # for param in self.model.parameters():
+                #     param.grad = None
+
                 loss.backward()
                 optimizer.step()
 
@@ -97,6 +102,7 @@ class FedavgClient(BaseClient):
         # Upload the model back to the server
         self.model.to('cpu')
         return self.model.named_parameters()
+        
     
     def __len__(self):
         return len(self.training_set), len(self.test_set)

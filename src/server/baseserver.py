@@ -10,10 +10,10 @@ import numpy as np
 from src import init_weights, TqdmToLogger, MetricManager
 from collections import ChainMap, defaultdict
 from importlib import import_module
-import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-
+# TODO: Long term todo: the server should probably eventually be tied directly to server algorithm
 logger = logging.getLogger(__name__)
 
 class BaseServer(metaclass=ABCMeta):
@@ -33,11 +33,9 @@ class BaseServer(metaclass=ABCMeta):
         # clients
         # Why should the server create the clients?
         # TODO: Probably need to disambiguate server from simulator
-        self.clients = self._create_clients(client_datasets)
-
+        self._clients = self._create_clients(client_datasets)
         
         self.results = defaultdict(dict)
-
 
     @property
     def model(self):
@@ -60,9 +58,16 @@ class BaseServer(metaclass=ABCMeta):
         return self._clients
 
     @clients.setter
-    def clients(self, clients):
+    def set_clients(self, clients):
         self._clients = clients
 
+    def add_client(self, id, client):
+        # TODO: function to add a client to the map of clients
+        pass
+
+    def remove_client(self, id):
+        # TODO: remove a client by id
+        pass
 
     def _init_model(self, model):
         # initialize the model class 
@@ -72,6 +77,7 @@ class BaseServer(metaclass=ABCMeta):
         return model
 
     def _get_algorithm(self, model, **kwargs):
+        # This looks like a futile function as it is highly tied to the server type. It's best imported. Will retain only for legacy purposes.
         # Imports the algorithm from algorithms modules
         ALGORITHM_CLASS = import_module(f'..algorithm.{self.args.algorithm}', package=__package__).__dict__[f'{self.args.algorithm.title()}Optimizer']
         # 
@@ -90,14 +96,16 @@ class BaseServer(metaclass=ABCMeta):
 
         logger.info(f'[{self.args.algorithm.upper()}] [Round: {str(self.round).zfill(4)}] Create clients!')
         
-        # NOTE: Using concurrency for managing clients
-        clients = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(int(self.args.K), os.cpu_count() - 1)) as workhorse:
+        # FIXME: separate submit from results call or remove concurrency all together
+        clients = {}
+        with ThreadPoolExecutor(max_workers=min(int(self.args.K), os.cpu_count() - 1)) as workhorse:
             for identifier, datasets in TqdmToLogger(
                 enumerate(client_datasets), logger=logger, 
                 desc=f'[{self.args.algorithm.upper()}] [Round: {str(self.round).zfill(4)}] ...creating clients... ',
                 total=len(client_datasets)):
-                clients.append(workhorse.submit(__create_client, identifier, datasets).result())            
+                clients[identifier] = workhorse.submit(__create_client, identifier, datasets).result()
+
+        # print(clients[0].download)
         
         logger.info(f'[{self.args.algorithm.upper()}] [Round: {str(self.round).zfill(4)}] ...sucessfully created {self.args.K} clients!')
         return clients
@@ -114,16 +122,15 @@ class BaseServer(metaclass=ABCMeta):
         
         logger.info(f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] Broadcast the global model at the server!')
         
-        # NOTE: check how the threadpool executor works
+        # FIXME: if this call is fast, no need for concurrency
         self.model.to('cpu')
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
+        with ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
             for identifier in TqdmToLogger(
                 ids, 
                 logger=logger, 
                 desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...broadcasting server model... ',
-                total=len(ids)
-                ):
-                workhorse.submit(__broadcast_model, self.clients[identifier]).result()
+                total=len(ids)):
+                workhorse.submit(__broadcast_model, self._clients[identifier]).result()
       
         logger.info(f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...sucessfully broadcasted the model to selected {len(ids)} clients!')
 
@@ -168,14 +175,15 @@ class BaseServer(metaclass=ABCMeta):
         if eval:
             if self.args._train_only: return
             results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
+            with ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
                 for idx in TqdmToLogger(
                     ids, 
                     logger=logger, 
                     desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...evaluate clients... ',
                     total=len(ids)
                     ):
-                    results.append(workhorse.submit(__evaluate_clients, self.clients[idx]).result()) 
+                    # FIXME: separate results from submit
+                    results.append(workhorse.submit(__evaluate_clients, self._clients[idx]).result()) 
             eval_sizes, eval_results = list(map(list, zip(*results)))
             eval_sizes, eval_results = dict(ChainMap(*eval_sizes)), dict(ChainMap(*eval_results))
             self.results[self._round][f'clients_evaluated_{"in" if participated else "out"}'] = self._log_results(
@@ -187,19 +195,41 @@ class BaseServer(metaclass=ABCMeta):
             logger.info(f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...completed evaluation of {"all" if ids is None else len(ids)} clients!')
         else:
             results = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
-                for idx in TqdmToLogger(
-                    ids, 
+            futures = []
+            with ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
+                futures = [workhorse.submit(__update_clients, self._clients[idx]) for idx in ids]
+                # for idx in TqdmToLogger(
+                #     ids, 
+                #     logger=logger, 
+                #     desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...update clients... ',
+                #     total=len(ids)
+                #     ):
+                #     # Client accessed here
+                #     futures.append(workhorse.submit(__update_clients, self._clients[idx])) 
+
+                for future in TqdmToLogger(
+                    as_completed(futures), 
                     logger=logger, 
-                    desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...update clients... ',
+                    desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...receiving updates... ',
                     total=len(ids)
                     ):
-                    results.append(workhorse.submit(__update_clients, self.clients[idx]).result()) 
+                    # Client accessed here
+                    # print("Got result for client: ", furtures[future])
+                    results.append(future.result())
+
+                # for i, future in enumerate(futures):
+                #     print("Got result for client: ", i)
+                #     results.append(future.result())
+
 
             # TODO: See what is happening here? 
+            # print(type(results))
             update_sizes, update_results = list(map(list, zip(*results)))
+
             update_sizes, update_results = dict(ChainMap(*update_sizes)), dict(ChainMap(*update_results))
 
+            # print('\n------------------------\n')
+   
             self.results[self._round]['clients_updated'] = self._log_results(
                 update_sizes, 
                 update_results, 
@@ -214,8 +244,8 @@ class BaseServer(metaclass=ABCMeta):
         logger.info(f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] Clean up!')
 
         for identifier in indices:
-            if self.clients[identifier].model is not None:
-                self.clients[identifier].model = None
+            if self._clients[identifier].model is not None:
+                self._clients[identifier].model = None
             else:
                 err = f'why clients ({identifier}) has no model? please check!'
                 logger.exception(err)
@@ -396,8 +426,3 @@ class BaseServer(metaclass=ABCMeta):
     @abstractmethod
     def update(self):
         raise NotImplementedError
-
-    # @abstractmethod
-    # def evaluate(self):
-    #     raise NotImplementedError
-

@@ -2,7 +2,7 @@ import torch
 
 from .basealgorithm import BaseOptimizer
 
-
+# FIXME: rewrite more efficiently
 class FedavgOptimizer(BaseOptimizer, torch.optim.Optimizer):
     def __init__(self, params, **kwargs):
         self.lr = kwargs.get('lr')
