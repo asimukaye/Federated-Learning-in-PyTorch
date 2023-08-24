@@ -58,7 +58,7 @@ class BaseServer(metaclass=ABCMeta):
         return self._clients
 
     @clients.setter
-    def set_clients(self, clients):
+    def clients(self, clients):
         self._clients = clients
 
     def add_client(self, id, client):
@@ -196,8 +196,20 @@ class BaseServer(metaclass=ABCMeta):
         else:
             results = []
             futures = []
-            with ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
-                futures = [workhorse.submit(__update_clients, self._clients[idx]) for idx in ids]
+
+            # Test dithing concurrency
+            for idx in TqdmToLogger(
+                    ids, 
+                    logger=logger, 
+                    desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...receiving updates... ',
+                    total=len(ids)
+                    ):
+                    # Client accessed here
+                    # print("Got result for client: ", furtures[future])
+                    results.append(__update_clients(self._clients[idx]))
+
+            # with ThreadPoolExecutor(max_workers=min(len(ids), os.cpu_count() - 1)) as workhorse:
+            #     futures = [workhorse.submit(__update_clients, self._clients[idx]) for idx in ids]
                 # for idx in TqdmToLogger(
                 #     ids, 
                 #     logger=logger, 
@@ -207,15 +219,15 @@ class BaseServer(metaclass=ABCMeta):
                 #     # Client accessed here
                 #     futures.append(workhorse.submit(__update_clients, self._clients[idx])) 
 
-                for future in TqdmToLogger(
-                    as_completed(futures), 
-                    logger=logger, 
-                    desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...receiving updates... ',
-                    total=len(ids)
-                    ):
-                    # Client accessed here
-                    # print("Got result for client: ", furtures[future])
-                    results.append(future.result())
+                # for future in TqdmToLogger(
+                #     as_completed(futures), 
+                #     logger=logger, 
+                #     desc=f'[{self.args.algorithm.upper()}] [Round: {str(self._round).zfill(4)}] ...receiving updates... ',
+                #     total=len(ids)
+                #     ):
+                #     # Client accessed here
+                #     # print("Got result for client: ", furtures[future])
+                #     results.append(future.result())
 
                 # for i, future in enumerate(futures):
                 #     print("Got result for client: ", i)

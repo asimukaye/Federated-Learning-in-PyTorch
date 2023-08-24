@@ -12,14 +12,17 @@ class CgsvOptimizer(FedavgOptimizer):
         self.server_grad_norm = None
 
         self._cos_sim = CosineSimilarity(dim=0)
-        self._importance_coefficients = dict.fromkeys(client_ids, 0.0)
+        # NOTE: Differing in initialization here from paper as it leads to permanently zero gradients
+        self._importance_coefficients = dict.fromkeys(client_ids, 1.0/len(client_ids))
         
     
-    def _compute_cgsv(self,server_param, local_param):
-        # self.local_grad_norm = self.server_param
+    def _compute_cgsv(self, server_param, local_param):
+        # self.local_grad_norm = self.server_para
+        # print(server_param[0].dtype)
+        # print(local_param[0].dtype)
+
         server_param_vec = parameters_to_vector(server_param)
         local_param_vec = parameters_to_vector(local_param)
-        print("Server param shape: ", server_param_vec.shape)
         return self._cos_sim(server_param_vec, local_param_vec)
 
     def _update_coefficients(self, client_id, cgsv):
@@ -46,7 +49,6 @@ class CgsvOptimizer(FedavgOptimizer):
                     continue
                 # gradient
                 delta = param.grad.data
-                
                 # FIXME: switch to an additive gradient with LR?
                 # w = w - ∆w 
                 param.data.sub_(delta)
@@ -61,44 +63,56 @@ class CgsvOptimizer(FedavgOptimizer):
         # NOTE: Currently supporting only one param group
         self._server_params = self.param_groups[0]['params']
 
-        # print(type(local_params))
-        # print(type(self.param_groups))
-        # print(type(self.param_groups[0]))
-        # print(type(self._server_params))
         local_params = [param.data.float() for param in local_params_itr]
-        print(len(self._server_params))
-        print(len(local_params))
+        # local_grads = [param.grad.float() for param in local_params_itr]
 
+        # print(len(self._server_params))
+        # print(len(local_params))
         # print(self._server_params)
 
-
-        cgsv = self._compute_cgsv(self._server_params, local_params)
-        print(cgsv)
-
-        self._update_coefficients(client_id, cgsv)
-
+        # cgsv = self._compute_cgsv(self._server_params.grad, local_params)
+        # print(cgsv)
+        # self._update_coefficients(client_id, cgsv)
+        local_grads = []
+        server_grads = []
         i = 0
-        for server_param, local_param in zip(self._server_params, local_params_itr):
+        # print(len(self._server_params))
+        for server_param, local_param in zip(self._server_params, local_params):
                 i += 1
-                print(i)
+
+                # print(i)
+                # print(type(local_param))
+                # print(local_param.data.shape)
+
+                # Check with prof. if this is accurate or not
+                local_delta = server_param - local_param
+
                 # u_t,i = w_t,i / ||w_t,i|| * 𝜞 
-                local_grad_norm = local_param.grad.div(local_param.grad.norm()).mul(self.gamma)
+                # local_grad_norm = local_param.grad.div(local_param.grad.norm()).mul(self.gamma)
+                local_grad_norm = local_delta.div(local_delta.norm()).mul(self.gamma)
 
+                weighted_local_grad = local_grad_norm.mul(self._importance_coefficients[client_id])
+                
+                # server params grad is used as a buffer
                 if server_param.grad is None:
-                    print("Grad is none")
-                    server_param.grad = local_grad_norm.mul(self._importance_coefficients[client_id])
+                    # print("Grad is none")
+                    server_param.grad = weighted_local_grad
                 else:
-                    print("Grad is not none")
-                    server_param.grad.add_(local_grad_norm.mul(self._importance_coefficients[client_id]))
+                    # print("Grad is not none")
+                    server_param.grad.add_(weighted_local_grad)
 
+                server_grads.append(server_param.grad.data)
+                local_grads.append(local_grad_norm.data)
 
-        # for group in self.param_groups:
-        #     for server_param, (name, local_param) in zip(group['params'], local_param_iterator):
+        # print(server_grads[7])
+        # print(local_grads[7])
 
-        #         # u_t,i = w_t,i / ||w_t,i|| * 𝜞 
-        #         local_grad_norm = local_param.grad.div(local_param.grad.norm()).mul(self.gamma)
+        cgsv = self._compute_cgsv(server_grads, local_grads)
 
-        #         if server_param.grad is None:
-        #             server_param.grad = local_grad_norm.mul(importance_coefficient)
-        #         else:
-        #             server_param.grad.add_(local_grad_norm.mul(importance_coefficient))
+        # cgsv_2 = self._compute_cgsv(self._server_params, local_params)
+
+        # print(cgsv)
+        # print(cgsv_2)
+        
+        self._update_coefficients(client_id, cgsv)
+        # print(self._importance_coefficients)

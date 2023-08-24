@@ -1,6 +1,6 @@
 import logging
 import torch
-
+from torch.optim.lr_scheduler import ExponentialLR
 # from .fedavgserver import FedavgServer
 from .baseserver import BaseServer
 from ..algorithm.cgsv import CgsvOptimizer
@@ -18,9 +18,9 @@ class CgsvServer(BaseServer):
         self.server_optimizer = CgsvOptimizer(params=self.model.parameters(), client_ids=self._clients.keys(), lr=self.args.lr, gamma=self.args.gamma, alpha=self.args.alpha)
 
         # lr scheduler
-        self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.server_optimizer, gamma=self.args.lr_decay, step_size=self.args.lr_decay_step)
+        self.lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(self.server_optimizer, gamma=self.args.lr_decay)
 
-        self.importance_coefficients = dict.fromkeys(self._clients, 0.0)
+        # self.importance_coefficients = dict.fromkeys(self._clients, 0.0)
         # self.alpha = self.args.alpha
         # self._init_coefficients()
 
